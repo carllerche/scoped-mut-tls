@@ -1,5 +1,7 @@
 # scoped-mut-tls
 
+[![Build Status](https://travis-ci.com/carllerche/scoped-mut-tls.svg?branch=master)](https://travis-ci.com/carllerche/scoped-mut-tls)
+
 [Documentation](https://docs.rs/scoped-mut-tls)
 
 Rust library enabling setting mutable references to thread locals.
