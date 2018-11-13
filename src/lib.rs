@@ -75,6 +75,17 @@ pub struct ScopedMutKey<T> {
 
 unsafe impl<T> Sync for ScopedMutKey<T> {}
 
+struct Reset<'a> {
+    cell: &'a Cell<usize>,
+    val: usize,
+}
+
+impl<'a> Drop for Reset<'a> {
+    fn drop(&mut self) {
+        self.cell.set(self.val);
+    }
+}
+
 impl<T> ScopedMutKey<T> {
     /// Inserts a value into this scoped thread local storage slot for a duration of a closure.
     ///
@@ -117,26 +128,17 @@ impl<T> ScopedMutKey<T> {
     pub fn set<F, R>(&'static self, t: &mut T, f: F) -> R
         where F: FnOnce() -> R
     {
-        struct Reset {
-            key: &'static LocalKey<Cell<usize>>,
-            val: usize,
-        }
+        self.inner.with(|cell| {
+            let prev = cell.get();
+            cell.set(t as *mut _ as usize);
 
-        impl Drop for Reset {
-            fn drop(&mut self) {
-                self.key.with(|c| c.set(self.val));
-            }
-        }
+            let _reset = Reset {
+                cell: cell,
+                val: prev,
+            };
 
-        let prev = self.inner.with(|c| {
-            let prev = c.get();
-            c.set(t as *mut _ as usize);
-            prev
-        });
-
-        let _reset = Reset { key: self.inner, val: prev };
-
-        f()
+            f()
+        })
     }
 
     /// Gets a value out of this scoped variable.
@@ -165,12 +167,22 @@ impl<T> ScopedMutKey<T> {
     pub fn with<F, R>(&'static self, f: F) -> R
         where F: FnOnce(&mut T) -> R
     {
-        let val = self.inner.with(|c| c.get());
-        assert!(val != 0, "cannot access a scoped thread local \
-                           variable without calling `set` first");
-        unsafe {
-            f(&mut *(val as *mut T))
-        }
+        self.inner.with(|cell| {
+            let val = cell.get();
+            cell.set(0);
+
+            assert!(val != 0, "cannot access a scoped thread local \
+                               variable without calling `set` first");
+
+            let _reset = Reset {
+                cell: cell,
+                val,
+            };
+
+            unsafe {
+                f(&mut *(val as *mut T))
+            }
+        })
     }
 
     /// Test whether this TLS key has been `set` for the current thread.
